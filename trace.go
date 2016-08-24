@@ -7,19 +7,22 @@ import (
 	"regexp"
 	"strings"
 	"time"
+
+	"h12.me/errors"
 )
 
 type Tracer struct {
 	RoundTripper http.RoundTripper
 	Header       http.Header
 	Timeout      time.Duration
+	Certs        CertPool
 }
 
 func (t *Tracer) Trace(uri string, callback func(string, *http.Response) error) error {
 	for {
 		req, err := http.NewRequest("GET", uri, nil)
 		if err != nil {
-			return err
+			return errors.Wrap(err)
 		}
 		if t.Header != nil {
 			req.Header = t.Header
@@ -30,12 +33,12 @@ func (t *Tracer) Trace(uri string, callback func(string, *http.Response) error) 
 				Header: make(http.Header),
 				Body:   ioutil.NopCloser(strings.NewReader("")),
 			})
-			return err
+			return errors.Wrap(err)
 		}
 		body, err := ioutil.ReadAll(resp.Body)
 		if err != nil {
 			resp.Body.Close()
-			return err
+			return errors.Wrap(err)
 		}
 		resp.Body.Close()
 		resp.Body = ioutil.NopCloser(bytes.NewReader(body))
@@ -48,7 +51,7 @@ func (t *Tracer) Trace(uri string, callback func(string, *http.Response) error) 
 				continue
 			}
 		} else if resp.StatusCode == http.StatusOK && couldJSRedirect(body) {
-			location, err := JSTracer{Timeout: t.Timeout}.Trace(uri, body)
+			location, err := (&JSTracer{Timeout: t.Timeout, Certs: t.Certs}).Trace(uri, body)
 			if err != nil {
 				return err
 			}

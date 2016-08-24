@@ -1,6 +1,7 @@
 package retracer
 
 import (
+	"crypto/tls"
 	"net/http"
 	"net/http/httptest"
 	"reflect"
@@ -10,23 +11,33 @@ import (
 )
 
 func TestTrace(t *testing.T) {
+	tlsServer := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {}))
 	sURL := ""
-	s := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+	httpServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		switch req.RequestURI {
 		case "/0":
 			http.Redirect(w, req, sURL+"/1", http.StatusFound)
 		case "/1":
 			w.Write([]byte(jsRedirectPage(sURL + "/2")))
+		case "/2":
+			w.Write([]byte(jsRedirectPage(tlsServer.URL + "/3")))
 		}
 	}))
-	defer s.Close()
-	sURL = s.URL
+	defer httpServer.Close()
+	sURL = httpServer.URL
+	certs, err := NewCertPool("cert")
+	if err != nil {
+		t.Fatal(err)
+	}
 	tracer := &Tracer{
-		RoundTripper: &http.Transport{},
-		Timeout:      time.Second,
+		RoundTripper: &http.Transport{
+			TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+		},
+		Timeout: time.Second,
+		Certs:   certs,
 	}
 	var via []string
-	err := tracer.Trace(s.URL+"/0", func(uri string, r *http.Response) error {
+	err = tracer.Trace(httpServer.URL+"/0", func(uri string, r *http.Response) error {
 		via = append(via, uri)
 		return nil
 	})
@@ -34,9 +45,12 @@ func TestTrace(t *testing.T) {
 		t.Fatal(err)
 	}
 	for i := range via {
-		via[i] = strings.TrimPrefix(via[i], s.URL+"/")
+		via[i] = strings.TrimPrefix(via[i], httpServer.URL+"/")
 	}
-	if !reflect.DeepEqual(via, []string{"0", "1", "2"}) {
-		t.Fatalf("expect [0 1 2] got %v", via)
+	for i := range via {
+		via[i] = strings.TrimPrefix(via[i], tlsServer.URL+"/")
+	}
+	if !reflect.DeepEqual(via, []string{"0", "1", "2", "3"}) {
+		t.Fatalf("expect [0 1 2 3] got %v", via)
 	}
 }
