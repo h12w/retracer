@@ -8,6 +8,8 @@ import (
 	"net/http/httptest"
 	"os"
 	"os/exec"
+	"path"
+	"strings"
 	"time"
 
 	"h12.me/errors"
@@ -27,6 +29,10 @@ func (t *JSTracer) Trace(uri string, body []byte) (string, error) {
 			if req.RequestURI == uri {
 				w.Write(body)
 			} else {
+				switch strings.ToLower(path.Ext(req.RequestURI)) {
+				case ".js", ".css", ".png", ".gif", ".jpg", ".jpeg":
+					return
+				}
 				redirectChan <- req.RequestURI
 			}
 		} else if req.Method == "CONNECT" {
