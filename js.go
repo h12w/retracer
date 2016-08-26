@@ -35,9 +35,9 @@ func (t *JSTracer) Trace(uri string, body []byte) (string, error) {
 
 	select {
 	case <-time.After(t.Timeout):
-	case redirectURL := <-strChan(proxy.RedirectURL):
+	case redirectURL := <-proxy.RedirectURLChan():
 		return redirectURL, nil
-	case err := <-errChan(proxy.Err):
+	case err := <-proxy.ErrChan():
 		return "", err
 	case err := <-errChan(browser.Wait):
 		return "", err
@@ -74,10 +74,30 @@ func (p *fakeProxy) URL() string {
 	return p.proxy.URL
 }
 
+func (p *fakeProxy) RedirectURLChan() <-chan string {
+	return p.redirectChan
+}
+
+func (p *fakeProxy) ErrChan() <-chan error {
+	return p.errChan
+}
+
+func (p *fakeProxy) setError(err error) {
+	select {
+	case p.errChan <- err:
+	default:
+	}
+}
+
+func (p *fakeProxy) setRedirectURL(uri string) {
+	select {
+	case p.redirectChan <- uri:
+	default:
+	}
+}
+
 func (p *fakeProxy) Close() error {
 	p.proxy.Close() // make should all serve goroutines have exited
-	close(p.redirectChan)
-	close(p.errChan)
 	return nil
 }
 
@@ -94,40 +114,32 @@ func (p *fakeProxy) serveHTTP(w http.ResponseWriter, req *http.Request) {
 		w.Write(p.body)
 	} else {
 		if !isResource(req.RequestURI) {
-			p.redirectChan <- req.RequestURI
+			p.setRedirectURL(req.RequestURI)
 		}
 	}
-}
-
-func (p *fakeProxy) RedirectURL() string {
-	return <-p.redirectChan
-}
-
-func (p *fakeProxy) Err() error {
-	return <-p.errChan
 }
 
 func (p *fakeProxy) serveHTTPS(w http.ResponseWriter, req *http.Request) {
 	cli, err := hijack(w)
 	if err != nil {
-		p.errChan <- err
+		p.setError(err)
 		return
 	}
 	defer cli.Close()
 	if err := OK200(cli); err != nil {
-		p.errChan <- err
+		p.setError(err)
 		return
 	}
 	conn, err := fakeSecureConn(cli, trimPort(req.URL.Host), p.certs)
 	if err != nil {
-		p.errChan <- err
+		p.setError(err)
 		return
 	}
 	defer conn.Close()
 
 	tlsReq, err := http.ReadRequest(bufio.NewReader(conn))
 	if err != nil {
-		p.errChan <- err
+		p.setError(err)
 		return
 	}
 	if atomic.AddInt32(&p.respondCount, 1) == 1 {
@@ -141,12 +153,12 @@ func (p *fakeProxy) serveHTTPS(w http.ResponseWriter, req *http.Request) {
 			Close:      true,
 		}
 		if err := resp.Write(conn); err != nil {
-			p.errChan <- err
+			p.setError(err)
 		}
 	} else {
 		requestURI := "https://" + req.RequestURI + tlsReq.RequestURI
 		if !isResource(requestURI) {
-			p.redirectChan <- requestURI
+			p.setRedirectURL(requestURI)
 		}
 	}
 }
