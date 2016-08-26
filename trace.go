@@ -50,8 +50,8 @@ func (t *Tracer) Trace(uri string, callback func(string, *http.Response) error) 
 			if uri = resp.Header.Get("Location"); uri != "" {
 				continue
 			}
-		} else if resp.StatusCode == http.StatusOK && couldJSRedirect(body) {
-			location, err := (&JSTracer{Timeout: t.Timeout, Certs: t.Certs}).Trace(uri, body)
+		} else if resp.StatusCode == http.StatusOK && couldJSRedirect(resp.Header, body) {
+			location, err := (&JSTracer{Timeout: time.Second, Certs: t.Certs}).Trace(uri, body)
 			if err != nil {
 				return err
 			}
@@ -76,6 +76,7 @@ func shouldRedirect(statusCode int) bool {
 
 var rxRedirect = regexp.MustCompile("(<script|http-equiv)")
 
-func couldJSRedirect(body []byte) bool {
-	return rxRedirect.Find(body) != nil
+func couldJSRedirect(header http.Header, body []byte) bool {
+	return header.Get("Refresh") != "" ||
+		rxRedirect.Find(body) != nil
 }

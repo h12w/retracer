@@ -2,9 +2,8 @@ retracer: URL Redirect Tracer
 =============================
 
 `h12.me/retracer` is a Go package that can trace any HTTP(S) URL redirections regardless
-they are 3xx redirections, http-eqiv refreshes or Javascript navigations.
-
-HTTP Refresh header is not supported because it is a proprietary behavior not specified in HTTP standard.
+they are 3xx redirections, http-eqiv refreshes, Javascript navigations and the non-standard
+[HTTP Refresh header](http://www.otsukare.info/2015/03/26/refresh-http-header).
 
 Install
 -------
@@ -22,4 +21,11 @@ It is recommended to use Xvfb to prevent Surf window appearing during Javascript
 ```bash
 xvfb :99 &
 DISPLAY=:99 ./your_program
+```
+
+To build Surf:
+
+```bash
+sudo apt-get install libwebkitgtk-dev
+make
 ```

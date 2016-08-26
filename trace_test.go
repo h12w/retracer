@@ -5,26 +5,35 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"reflect"
-	"strings"
 	"testing"
 	"time"
 )
 
 func TestTrace(t *testing.T) {
-	tlsServer := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {}))
-	sURL := ""
+	var tlsURL string
+	var httpURL string
+	tlsServer := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		switch req.RequestURI {
+		case "/2":
+			w.Write([]byte(jsRedirectPage(tlsURL + "/3")))
+		case "/3":
+			http.Redirect(w, req, httpURL+"/4", http.StatusFound)
+		}
+	}))
+	defer tlsServer.Close()
+	tlsURL = tlsServer.URL
 	httpServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		switch req.RequestURI {
 		case "/0":
-			http.Redirect(w, req, sURL+"/1", http.StatusFound)
+			w.Write([]byte(jsRedirectPage(httpURL + "/1")))
 		case "/1":
-			w.Write([]byte(jsRedirectPage(sURL + "/2")))
-		case "/2":
-			w.Write([]byte(jsRedirectPage(tlsServer.URL + "/3")))
+			http.Redirect(w, req, tlsURL+"/2", http.StatusFound)
+		case "/4":
+			w.WriteHeader(http.StatusOK)
 		}
 	}))
 	defer httpServer.Close()
-	sURL = httpServer.URL
+	httpURL = httpServer.URL
 	certs, err := NewCertPool("cert")
 	if err != nil {
 		t.Fatal(err)
@@ -44,13 +53,14 @@ func TestTrace(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for i := range via {
-		via[i] = strings.TrimPrefix(via[i], httpServer.URL+"/")
+	expectedVia := []string{
+		httpURL + "/0",
+		httpURL + "/1",
+		tlsURL + "/2",
+		tlsURL + "/3",
+		httpURL + "/4",
 	}
-	for i := range via {
-		via[i] = strings.TrimPrefix(via[i], tlsServer.URL+"/")
-	}
-	if !reflect.DeepEqual(via, []string{"0", "1", "2", "3"}) {
-		t.Fatalf("expect [0 1 2 3] got %v", via)
+	if !reflect.DeepEqual(via, expectedVia) {
+		t.Fatalf("expect \n%v\n got \n%v", expectedVia, via)
 	}
 }

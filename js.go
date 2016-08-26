@@ -12,6 +12,7 @@ import (
 	"os/exec"
 	"path"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"h12.me/errors"
@@ -22,28 +23,45 @@ type JSTracer struct {
 	Certs   CertPool
 }
 
-func isResource(uri string) bool {
-	switch strings.ToLower(path.Ext(uri)) {
-	case ".js", ".css", ".png", ".gif", ".jpg", ".jpeg":
-		return true
+func (t *JSTracer) Trace(uri string, body []byte) (string, error) {
+	proxy := newProxy(uri, body, t.Timeout, t.Certs)
+	defer proxy.Close()
+
+	browser, err := startBrowser(uri, proxy.URL())
+	if err != nil {
+		return "", nil
 	}
-	return false
+	defer browser.Close()
+
+	select {
+	case <-time.After(t.Timeout):
+	case redirectURL := <-strChan(proxy.RedirectURL):
+		return redirectURL, nil
+	case err := <-errChan(proxy.Err):
+		return "", err
+	case err := <-errChan(browser.Wait):
+		return "", err
+	}
+	return "", nil
 }
 
 type fakeProxy struct {
 	uri          string
 	body         []byte
 	certs        CertPool
+	timeout      time.Duration
+	proxy        *httptest.Server
 	redirectChan chan string
 	errChan      chan error
-	proxy        *httptest.Server
+	respondCount int32
 }
 
-func newProxy(uri string, body []byte, certs CertPool) *fakeProxy {
+func newProxy(uri string, body []byte, timeout time.Duration, certs CertPool) *fakeProxy {
 	fp := &fakeProxy{
 		uri:          uri,
 		body:         body,
 		certs:        certs,
+		timeout:      timeout,
 		redirectChan: make(chan string),
 		errChan:      make(chan error),
 	}
@@ -52,8 +70,27 @@ func newProxy(uri string, body []byte, certs CertPool) *fakeProxy {
 	return fp
 }
 
+func (p *fakeProxy) URL() string {
+	return p.proxy.URL
+}
+
+func (p *fakeProxy) Close() error {
+	p.proxy.Close() // make should all serve goroutines have exited
+	close(p.redirectChan)
+	close(p.errChan)
+	return nil
+}
+
+func (p *fakeProxy) serve(w http.ResponseWriter, req *http.Request) {
+	if req.Method == "GET" {
+		p.serveHTTP(w, req)
+	} else if req.Method == "CONNECT" {
+		p.serveHTTPS(w, req)
+	}
+}
+
 func (p *fakeProxy) serveHTTP(w http.ResponseWriter, req *http.Request) {
-	if req.RequestURI == p.uri {
+	if atomic.AddInt32(&p.respondCount, 1) == 1 {
 		w.Write(p.body)
 	} else {
 		if !isResource(req.RequestURI) {
@@ -62,91 +99,56 @@ func (p *fakeProxy) serveHTTP(w http.ResponseWriter, req *http.Request) {
 	}
 }
 
-func (p *fakeProxy) serve(w http.ResponseWriter, req *http.Request) {
-	if req.Method == "GET" {
-		p.serveHTTP(w, req)
-	} else if req.Method == "CONNECT" {
-		host := req.URL.Host
-		cli, err := hijack(w)
-		if err != nil {
-			p.errChan <- err
-			return
-		}
-		defer cli.Close()
-		if err := OK200(cli); err != nil {
-			p.errChan <- err
-			return
-		}
-		conn, err := fakeSecureConn(cli, trimPort(host), p.certs)
-		if err != nil {
-			p.errChan <- err
-			return
-		}
-		defer conn.Close()
-
-		tlsReq, err := http.ReadRequest(bufio.NewReader(conn))
-		if err != nil {
-			p.errChan <- err
-			return
-		}
-		requestURI := "https://" + trimPort(req.RequestURI) + tlsReq.RequestURI
-		if requestURI == p.uri {
-			resp := http.Response{
-				Status:     http.StatusText(http.StatusFound),
-				StatusCode: http.StatusFound,
-				Proto:      "HTTP/1.1",
-				ProtoMajor: 1,
-				ProtoMinor: 1,
-				Body:       ioutil.NopCloser(bytes.NewReader(p.body)),
-				Close:      true,
-			}
-			if err := resp.Write(conn); err != nil {
-				p.errChan <- err
-			}
-		} else {
-			if !isResource(requestURI) {
-				p.redirectChan <- requestURI
-			}
-		}
-	}
+func (p *fakeProxy) RedirectURL() string {
+	return <-p.redirectChan
 }
 
-func (t *JSTracer) Trace(uri string, body []byte) (string, error) {
-	proxy := newProxy(uri, body, t.Certs)
-	redirectChan := proxy.redirectChan
-	errChan := proxy.errChan
-	defer proxy.proxy.Close()
+func (p *fakeProxy) Err() error {
+	return <-p.errChan
+}
 
-	browser := exec.Command(
-		"surf",
-		"-bdfgikmnp",
-		"-t", os.DevNull,
-		uri)
-	browser.Env = []string{
-		"DISPLAY=" + os.Getenv("DISPLAY"),
-		"http_proxy=" + proxy.proxy.URL,
+func (p *fakeProxy) serveHTTPS(w http.ResponseWriter, req *http.Request) {
+	cli, err := hijack(w)
+	if err != nil {
+		p.errChan <- err
+		return
 	}
-	defer func() {
-		if browser.Process != nil {
-			browser.Process.Kill()
-		}
-	}()
+	defer cli.Close()
+	if err := OK200(cli); err != nil {
+		p.errChan <- err
+		return
+	}
+	conn, err := fakeSecureConn(cli, trimPort(req.URL.Host), p.certs)
+	if err != nil {
+		p.errChan <- err
+		return
+	}
+	defer conn.Close()
 
-	go func() {
-		if err := browser.Run(); err != nil {
-			if _, ok := err.(*exec.ExitError); !ok {
-				errChan <- errors.Wrap(err)
-			}
-		}
-	}()
-	select {
-	case redirectURL := <-redirectChan:
-		return redirectURL, nil
-	case <-time.After(t.Timeout):
-	case err := <-errChan:
-		return "", err
+	tlsReq, err := http.ReadRequest(bufio.NewReader(conn))
+	if err != nil {
+		p.errChan <- err
+		return
 	}
-	return "", nil
+	if atomic.AddInt32(&p.respondCount, 1) == 1 {
+		resp := http.Response{
+			Status:     http.StatusText(http.StatusFound),
+			StatusCode: http.StatusFound,
+			Proto:      "HTTP/1.1",
+			ProtoMajor: 1,
+			ProtoMinor: 1,
+			Body:       ioutil.NopCloser(bytes.NewReader(p.body)),
+			Close:      true,
+		}
+		if err := resp.Write(conn); err != nil {
+			p.errChan <- err
+		}
+	} else {
+		requestURI := "https://" + req.RequestURI + tlsReq.RequestURI
+		if !isResource(requestURI) {
+			p.redirectChan <- requestURI
+		}
+	}
 }
 
 func trimPort(hostPort string) string {
@@ -173,4 +175,60 @@ func hijack(w http.ResponseWriter) (net.Conn, error) {
 		return nil, errors.Wrap(err)
 	}
 	return conn, nil
+}
+
+func isResource(uri string) bool {
+	switch strings.ToLower(path.Ext(uri)) {
+	case ".js", ".css", ".png", ".gif", ".jpg", ".jpeg":
+		return true
+	}
+	return false
+}
+
+type browser struct {
+	cmd *exec.Cmd
+}
+
+func startBrowser(uri, proxy string) (*browser, error) {
+	cmd := exec.Command(
+		"surf",
+		"-bdfgikmnp",
+		"-t", os.DevNull,
+		uri)
+	cmd.Env = []string{
+		"DISPLAY=" + os.Getenv("DISPLAY"),
+		"http_proxy=" + proxy,
+	}
+	return &browser{cmd: cmd}, cmd.Start()
+}
+
+func (b *browser) Wait() error {
+	err := b.cmd.Wait()
+	if _, ok := err.(*exec.ExitError); !ok {
+		return errors.Wrap(err)
+	}
+	return nil
+}
+
+func (b *browser) Close() error {
+	if b.cmd.Process != nil {
+		return b.cmd.Process.Kill()
+	}
+	return nil
+}
+
+func strChan(f func() string) chan string {
+	ch := make(chan string)
+	go func() {
+		ch <- f()
+	}()
+	return ch
+}
+
+func errChan(f func() error) chan error {
+	ch := make(chan error)
+	go func() {
+		ch <- f()
+	}()
+	return ch
 }
