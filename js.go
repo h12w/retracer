@@ -23,8 +23,8 @@ type JSTracer struct {
 	Certs   CertPool
 }
 
-func (t *JSTracer) Trace(uri string, body []byte) (string, error) {
-	proxy := newProxy(uri, body, t.Timeout, t.Certs)
+func (t *JSTracer) Trace(uri string, header http.Header, body []byte) (string, error) {
+	proxy := newProxy(uri, header, body, t.Timeout, t.Certs)
 	defer proxy.Close()
 
 	browser, err := startBrowser(uri, proxy.URL())
@@ -47,6 +47,7 @@ func (t *JSTracer) Trace(uri string, body []byte) (string, error) {
 
 type fakeProxy struct {
 	uri          string
+	header       http.Header
 	body         []byte
 	certs        CertPool
 	timeout      time.Duration
@@ -56,9 +57,10 @@ type fakeProxy struct {
 	respondCount int32
 }
 
-func newProxy(uri string, body []byte, timeout time.Duration, certs CertPool) *fakeProxy {
+func newProxy(uri string, header http.Header, body []byte, timeout time.Duration, certs CertPool) *fakeProxy {
 	fp := &fakeProxy{
 		uri:          uri,
+		header:       header,
 		body:         body,
 		certs:        certs,
 		timeout:      timeout,
@@ -111,6 +113,9 @@ func (p *fakeProxy) serve(w http.ResponseWriter, req *http.Request) {
 
 func (p *fakeProxy) serveHTTP(w http.ResponseWriter, req *http.Request) {
 	if atomic.AddInt32(&p.respondCount, 1) == 1 {
+		for k, v := range p.header {
+			w.Header()[k] = v
+		}
 		w.Write(p.body)
 	} else {
 		if !isResource(req.RequestURI) {
@@ -149,6 +154,7 @@ func (p *fakeProxy) serveHTTPS(w http.ResponseWriter, req *http.Request) {
 			Proto:      "HTTP/1.1",
 			ProtoMajor: 1,
 			ProtoMinor: 1,
+			Header:     p.header,
 			Body:       ioutil.NopCloser(bytes.NewReader(p.body)),
 			Close:      true,
 		}

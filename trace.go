@@ -47,11 +47,14 @@ func (t *Tracer) Trace(uri string, callback func(string, *http.Response) error) 
 		}
 
 		if shouldRedirect(resp.StatusCode) {
-			if uri = resp.Header.Get("Location"); uri != "" {
-				continue
+			loc, err := resp.Location() // relative path will be expanded
+			if err != nil {
+				return err
 			}
+			uri = loc.String()
+			continue
 		} else if resp.StatusCode == http.StatusOK && couldJSRedirect(resp.Header, body) {
-			location, err := (&JSTracer{Timeout: time.Second, Certs: t.Certs}).Trace(uri, body)
+			location, err := (&JSTracer{Timeout: 2 * time.Second, Certs: t.Certs}).Trace(uri, resp.Header, body)
 			if err != nil {
 				return err
 			}
