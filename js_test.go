@@ -11,7 +11,7 @@ func TestJSSetLocation(t *testing.T) {
 		redirectURI = "http://redirect/"
 	)
 	pageBody := jsRedirectPage(redirectURI)
-	gotRedirectURI, err := (&JSTracer{Timeout: time.Second}).Trace(pageURI, []byte(pageBody))
+	gotRedirectURI, err := (&JSTracer{Timeout: time.Second}).Trace(pageURI, nil, []byte(pageBody))
 	if err != nil {
 		t.Fatal(err)
 	}
