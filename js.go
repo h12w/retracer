@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"io"
 	"io/ioutil"
+	"log"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -24,6 +25,9 @@ type JSTracer struct {
 }
 
 func (t *JSTracer) Trace(uri string, header http.Header, body []byte) (string, error) {
+	if t.Timeout == 0 {
+		t.Timeout = 10 * time.Second
+	}
 	proxy := newProxy(uri, header, body, t.Timeout, t.Certs)
 	defer proxy.Close()
 
@@ -224,8 +228,18 @@ func startBrowser(uri, proxy string) (*browser, error) {
 	return &browser{cmd: cmd}, cmd.Start()
 }
 
+func (b *browser) pid() int {
+	if b.cmd.Process != nil {
+		return b.cmd.Process.Pid
+	}
+	return 0
+}
+
 func (b *browser) Wait() error {
+	pid := b.pid()
+	log.Printf("surf %d started.", pid)
 	err := b.cmd.Wait()
+	log.Printf("surf %d exited.", pid)
 	if _, ok := err.(*exec.ExitError); !ok {
 		return errors.Wrap(err)
 	}
@@ -234,7 +248,11 @@ func (b *browser) Wait() error {
 
 func (b *browser) Close() error {
 	if b.cmd.Process != nil {
-		return b.cmd.Process.Kill()
+		pid := b.pid()
+		if err := b.cmd.Process.Kill(); err != nil {
+			log.Printf("fail to kill surf %d: %s", pid, err.Error())
+			return err
+		}
 	}
 	return nil
 }
