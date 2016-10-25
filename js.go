@@ -236,10 +236,7 @@ func (b *browser) pid() int {
 }
 
 func (b *browser) Wait() error {
-	pid := b.pid()
-	log.Printf("surf %d started.", pid)
 	err := b.cmd.Wait()
-	log.Printf("surf %d exited.", pid)
 	if _, ok := err.(*exec.ExitError); !ok {
 		return errors.Wrap(err)
 	}
@@ -249,9 +246,14 @@ func (b *browser) Wait() error {
 func (b *browser) Close() error {
 	if b.cmd.Process != nil {
 		pid := b.pid()
-		if err := b.cmd.Process.Kill(); err != nil {
-			log.Printf("fail to kill surf %d: %s", pid, err.Error())
-			return err
+		// try killing twice
+		for i := 0; i < 2; i++ {
+			if err := b.cmd.Process.Kill(); err != nil {
+				if !strings.Contains(err.Error(), "already finished") {
+					log.Printf("fail to kill surf %d: %s", pid, err.Error())
+					return err
+				}
+			}
 		}
 	}
 	return nil
