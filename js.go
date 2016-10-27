@@ -14,6 +14,7 @@ import (
 	"path"
 	"strings"
 	"sync/atomic"
+	"syscall"
 	"time"
 
 	"h12.me/errors"
@@ -228,13 +229,6 @@ func startBrowser(uri, proxy string) (*browser, error) {
 	return &browser{cmd: cmd}, cmd.Start()
 }
 
-func (b *browser) pid() int {
-	if b.cmd.Process != nil {
-		return b.cmd.Process.Pid
-	}
-	return 0
-}
-
 func (b *browser) Wait() error {
 	err := b.cmd.Wait()
 	if _, ok := err.(*exec.ExitError); !ok {
@@ -245,18 +239,31 @@ func (b *browser) Wait() error {
 
 func (b *browser) Close() error {
 	if b.cmd.Process != nil {
-		pid := b.pid()
-		// try killing twice
-		for i := 0; i < 2; i++ {
-			if err := b.cmd.Process.Kill(); err != nil {
-				if !strings.Contains(err.Error(), "already finished") {
-					log.Printf("fail to kill surf %d: %s", pid, err.Error())
-					return err
-				}
-			}
+		if err := forceKill(b.cmd.Process); err != nil {
+			log.Printf("fail to kill surf %d: %s", b.cmd.Process.Pid, err.Error())
+			return err
 		}
 	}
 	return nil
+}
+
+func forceKill(p *os.Process) error {
+	for processExists(p.Pid) {
+		if err := p.Kill(); err != nil {
+			return err
+		}
+		time.Sleep(time.Millisecond)
+	}
+	return nil
+}
+
+func processExists(pid int) bool {
+	process, err := os.FindProcess(pid)
+	if err != nil {
+		// non-unix system
+		return false
+	}
+	return nil == process.Signal(syscall.Signal(0))
 }
 
 func strChan(f func() string) chan string {
