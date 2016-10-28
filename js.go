@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"h12.me/errors"
+	"h12.me/uuid"
 )
 
 type JSTracer struct {
@@ -36,6 +37,7 @@ func (t *JSTracer) Trace(uri string, header http.Header, body []byte) (string, e
 	if err != nil {
 		return "", nil
 	}
+	log.Printf("surf %s (%d) started", browser.id, browser.pid())
 	defer browser.Close()
 
 	select {
@@ -213,20 +215,34 @@ func isResource(uri string, header http.Header) bool {
 }
 
 type browser struct {
+	id  string
 	cmd *exec.Cmd
 }
 
 func startBrowser(uri, proxy string) (*browser, error) {
+	// id is for debugging only
+	id, _ := uuid.NewTime(time.Now())
 	cmd := exec.Command(
 		"surf",
 		"-bdfgikmnp",
 		"-t", os.DevNull,
-		uri)
+		uri,
+		id.String(),
+	)
+	// set pgid so all child processes can be killed together
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	cmd.Env = []string{
 		"DISPLAY=" + os.Getenv("DISPLAY"),
 		"http_proxy=" + proxy,
 	}
-	return &browser{cmd: cmd}, cmd.Start()
+	return &browser{id: id.String(), cmd: cmd}, cmd.Start()
+}
+
+func (b *browser) pid() int {
+	if b.cmd.Process != nil {
+		return b.cmd.Process.Pid
+	}
+	return 0
 }
 
 func (b *browser) Wait() error {
@@ -238,21 +254,34 @@ func (b *browser) Wait() error {
 }
 
 func (b *browser) Close() error {
-	if b.cmd.Process != nil {
-		if err := forceKill(b.cmd.Process); err != nil {
-			log.Printf("fail to kill surf %d: %s", b.cmd.Process.Pid, err.Error())
-			return err
-		}
+	log.Printf("surf %s (%d) is closing", b.id, b.pid())
+	if b.cmd.Process == nil {
+		log.Printf("cannot kill surf %s because it is not started", b.id)
+		return nil
 	}
+
+	// kill -pgid (-pid)
+	// https://medium.com/@felixge/killing-a-child-process-and-all-of-its-children-in-go-54079af94773#.g2krdc3ir
+	if err := syscall.Kill(-b.cmd.Process.Pid, syscall.SIGKILL); err != nil {
+		log.Printf("fail to kill surf %s (%d)", b.id, b.pid())
+		return err
+	}
+	log.Printf("surf %s (%d) killed", b.id, b.pid())
 	return nil
 }
 
 func forceKill(p *os.Process) error {
-	for processExists(p.Pid) {
+	if err := p.Kill(); err != nil {
+		return err
+	}
+	for i := 0; processExists(p.Pid); i++ {
 		if err := p.Kill(); err != nil {
 			return err
 		}
-		time.Sleep(time.Millisecond)
+		time.Sleep(time.Second)
+		if i > 10 {
+			log.Printf("try to kill surf %d for the %d times", p.Pid, i)
+		}
 	}
 	return nil
 }
