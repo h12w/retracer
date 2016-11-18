@@ -37,7 +37,6 @@ func (t *JSTracer) Trace(uri string, header http.Header, body []byte) (string, e
 	if err != nil {
 		return "", nil
 	}
-	log.Printf("surf %s (%d) started", browser.id, browser.pid())
 	defer browser.Close()
 
 	select {
@@ -273,7 +272,6 @@ func (b *browser) Wait() error {
 }
 
 func (b *browser) Close() error {
-	log.Printf("surf %s (%d) is closing", b.id, b.pid())
 	if b.cmd.Process == nil {
 		log.Printf("cannot kill surf %s because it is not started", b.id)
 		return nil
@@ -285,7 +283,6 @@ func (b *browser) Close() error {
 		log.Printf("fail to kill surf %s (%d)", b.id, b.pid())
 		return err
 	}
-	log.Printf("surf %s (%d) killed", b.id, b.pid())
 	return nil
 }
 
