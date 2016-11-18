@@ -54,7 +54,7 @@ func (t *Tracer) Trace(uri string, callback func(string, *http.Response) error) 
 			uri = loc.String()
 			continue
 		} else if resp.StatusCode == http.StatusOK && couldJSRedirect(resp.Header, body) {
-			location, err := (&JSTracer{Timeout: 2 * time.Second, Certs: t.Certs}).Trace(uri, resp.Header, body)
+			location, err := (&JSTracer{Timeout: 5 * time.Second, Certs: t.Certs}).Trace(uri, resp.Header, body)
 			if err != nil {
 				return err
 			}

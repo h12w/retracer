@@ -170,9 +170,24 @@ func (p *fakeProxy) serveHTTPS(w http.ResponseWriter, req *http.Request) {
 		}
 	} else {
 		requestURI := "https://" + req.RequestURI + tlsReq.RequestURI
-		if !isResource(requestURI, tlsReq.Header) {
-			p.setRedirectURL(requestURI)
+		if isJS(requestURI) {
+			jsResp, err := http.Get(requestURI)
+			if err != nil {
+				p.setError(err)
+				return
+			}
+			if err := jsResp.Write(conn); err != nil {
+				p.setError(err)
+			}
+			jsResp.Body.Close()
+			return
 		}
+
+		if isResource(requestURI, tlsReq.Header) {
+			return
+		}
+
+		p.setRedirectURL(requestURI)
 	}
 }
 
@@ -202,9 +217,13 @@ func hijack(w http.ResponseWriter) (net.Conn, error) {
 	return conn, nil
 }
 
+func isJS(uri string) bool {
+	return strings.ToLower(path.Ext(uri)) == ".js"
+}
+
 func isResource(uri string, header http.Header) bool {
 	switch strings.ToLower(path.Ext(uri)) {
-	case ".js", ".css", ".png", ".gif", ".jpg", ".jpeg":
+	case ".css", ".png", ".gif", ".jpg", ".jpeg":
 		return true
 	}
 	accept := header.Get("Accept")
