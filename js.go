@@ -42,6 +42,7 @@ func (t *JSTracer) Trace(uri string, header http.Header, body []byte) (string, e
 
 	select {
 	case <-time.After(t.Timeout):
+		return "", ErrJSRedirectionTimeout
 	case redirectURL := <-proxy.RedirectURLChan():
 		return redirectURL, nil
 	case err := <-proxy.ErrChan():
@@ -49,7 +50,6 @@ func (t *JSTracer) Trace(uri string, header http.Header, body []byte) (string, e
 	case err := <-errChan(browser.Wait):
 		return "", err
 	}
-	return "", nil
 }
 
 type fakeProxy struct {
