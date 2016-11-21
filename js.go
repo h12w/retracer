@@ -27,6 +27,7 @@ type JSTracer struct {
 }
 
 func (t *JSTracer) Trace(uri string, header http.Header, body []byte) (string, error) {
+	body = neutralizeIFrame(body)
 	if t.Timeout == 0 {
 		t.Timeout = 10 * time.Second
 	}
@@ -49,6 +50,11 @@ func (t *JSTracer) Trace(uri string, header http.Header, body []byte) (string, e
 	case err := <-errChan(browser.Wait):
 		return "", err
 	}
+}
+func neutralizeIFrame(body []byte) []byte {
+	body = bytes.Replace(body, []byte("<iframe"), []byte("<div"), -1)
+	body = bytes.Replace(body, []byte("/iframe>"), []byte("</div"), -1)
+	return body
 }
 
 type fakeProxy struct {

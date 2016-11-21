@@ -5,6 +5,11 @@ retracer: URL Redirect Tracer
 they are 3xx redirections, http-eqiv refreshes, Javascript navigations and the non-standard
 [HTTP Refresh header](http://www.otsukare.info/2015/03/26/refresh-http-header).
 
+Hightlights
+-----------
+
+* Avoid unnecessary resource loading, like: CSS, images, iframes.
+
 Install
 -------
 
