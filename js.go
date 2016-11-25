@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"io"
 	"log"
-	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -156,32 +155,6 @@ func (p *fakeProxy) serveHTTP(w http.ResponseWriter, req *http.Request) {
 
 		p.setRedirectURL(req.RequestURI)
 	}
-}
-
-func trimPort(hostPort string) string {
-	host, _, _ := net.SplitHostPort(hostPort)
-	return host
-}
-
-func isEOF(err error) bool {
-	return err == io.EOF || err.Error() == "EOF" || err.Error() == "unexpected EOF"
-}
-
-func OK200(w io.Writer) error {
-	_, err := w.Write([]byte("HTTP/1.1 200 OK\r\n\r\n"))
-	return errors.Wrap(err)
-}
-
-func hijack(w http.ResponseWriter) (net.Conn, error) {
-	hij, ok := w.(http.Hijacker)
-	if !ok {
-		return nil, errors.New("cannot hijack the ResponseWriter")
-	}
-	conn, _, err := hij.Hijack()
-	if err != nil {
-		return nil, errors.Wrap(err)
-	}
-	return conn, nil
 }
 
 func isJS(uri string) bool {
