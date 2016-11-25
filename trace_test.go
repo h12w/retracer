@@ -7,6 +7,8 @@ import (
 	"reflect"
 	"testing"
 	"time"
+
+	"h12.me/mitm"
 )
 
 func TestTrace(t *testing.T) {
@@ -34,7 +36,7 @@ func TestTrace(t *testing.T) {
 	}))
 	defer httpServer.Close()
 	httpURL = httpServer.URL
-	certs, err := NewCertPool("cert")
+	certs, err := mitm.NewCertPool("cert")
 	if err != nil {
 		t.Fatal(err)
 	}

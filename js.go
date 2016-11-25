@@ -1,10 +1,8 @@
 package retracer
 
 import (
-	"bufio"
 	"bytes"
 	"io"
-	"io/ioutil"
 	"log"
 	"net"
 	"net/http"
@@ -18,12 +16,13 @@ import (
 	"time"
 
 	"h12.me/errors"
+	"h12.me/mitm"
 	"h12.me/uuid"
 )
 
 type JSTracer struct {
 	Timeout time.Duration
-	Certs   CertPool
+	Certs   *mitm.CertPool
 }
 
 func (t *JSTracer) Trace(uri string, header http.Header, body []byte) (string, error) {
@@ -61,7 +60,7 @@ type fakeProxy struct {
 	uri          string
 	header       http.Header
 	body         []byte
-	certs        CertPool
+	certs        *mitm.CertPool
 	timeout      time.Duration
 	proxy        *httptest.Server
 	redirectChan chan string
@@ -69,7 +68,7 @@ type fakeProxy struct {
 	respondCount int32
 }
 
-func newProxy(uri string, header http.Header, body []byte, timeout time.Duration, certs CertPool) *fakeProxy {
+func newProxy(uri string, header http.Header, body []byte, timeout time.Duration, certs *mitm.CertPool) *fakeProxy {
 	fp := &fakeProxy{
 		uri:          uri,
 		header:       header,
@@ -119,7 +118,10 @@ func (p *fakeProxy) serve(w http.ResponseWriter, req *http.Request) {
 	if req.Method == "GET" {
 		p.serveHTTP(w, req)
 	} else if req.Method == "CONNECT" {
-		p.serveHTTPS(w, req)
+		err := p.certs.ServeHTTPS(w, req, p.serveHTTP)
+		if err != nil {
+			p.setError(errors.Wrap(err))
+		}
 	}
 }
 
@@ -130,69 +132,29 @@ func (p *fakeProxy) serveHTTP(w http.ResponseWriter, req *http.Request) {
 		}
 		w.Write(p.body)
 	} else {
-		if !isResource(req.RequestURI, req.Header) {
-			p.setRedirectURL(req.RequestURI)
-		}
-	}
-}
-
-func (p *fakeProxy) serveHTTPS(w http.ResponseWriter, req *http.Request) {
-	cli, err := hijack(w)
-	if err != nil {
-		p.setError(err)
-		return
-	}
-	defer cli.Close()
-	if err := OK200(cli); err != nil {
-		p.setError(err)
-		return
-	}
-	conn, err := fakeSecureConn(cli, trimPort(req.URL.Host), p.certs)
-	if err != nil {
-		p.setError(err)
-		return
-	}
-	defer conn.Close()
-
-	tlsReq, err := http.ReadRequest(bufio.NewReader(conn))
-	if err != nil {
-		p.setError(err)
-		return
-	}
-	if atomic.AddInt32(&p.respondCount, 1) == 1 {
-		resp := http.Response{
-			Status:     http.StatusText(http.StatusFound),
-			StatusCode: http.StatusFound,
-			Proto:      "HTTP/1.1",
-			ProtoMajor: 1,
-			ProtoMinor: 1,
-			Header:     p.header,
-			Body:       ioutil.NopCloser(bytes.NewReader(p.body)),
-			Close:      true,
-		}
-		if err := resp.Write(conn); err != nil {
-			p.setError(err)
-		}
-	} else {
-		requestURI := "https://" + req.RequestURI + tlsReq.RequestURI
-		if isJS(requestURI) {
-			jsResp, err := http.Get(requestURI)
+		if isJS(req.RequestURI) {
+			jsResp, err := http.Get(req.RequestURI)
 			if err != nil {
-				p.setError(err)
+				p.setError(errors.Wrap(err))
 				return
 			}
-			if err := jsResp.Write(conn); err != nil {
-				p.setError(err)
+
+			for k, v := range jsResp.Header {
+				w.Header()[k] = v
+			}
+			w.WriteHeader(jsResp.StatusCode)
+			if _, err := io.Copy(w, jsResp.Body); err != nil {
+				p.setError(errors.Wrap(err))
 			}
 			jsResp.Body.Close()
 			return
 		}
 
-		if isResource(requestURI, tlsReq.Header) {
+		if isResource(req.RequestURI, req.Header) {
 			return
 		}
 
-		p.setRedirectURL(requestURI)
+		p.setRedirectURL(req.RequestURI)
 	}
 }
 

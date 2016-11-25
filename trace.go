@@ -13,13 +13,14 @@ import (
 
 	"golang.org/x/net/publicsuffix"
 	"h12.me/errors"
+	"h12.me/mitm"
 )
 
 type Tracer struct {
 	RoundTripper http.RoundTripper
 	Header       http.Header
 	Timeout      time.Duration
-	Certs        CertPool
+	Certs        *mitm.CertPool
 }
 
 func (t *Tracer) Trace(uri string, callback func(string, *http.Response) error) error {
