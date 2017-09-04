@@ -51,7 +51,7 @@ func (t *JSTracer) Trace(uri string, header http.Header, body []byte) (string, e
 }
 func neutralizeIFrame(body []byte) []byte {
 	body = bytes.Replace(body, []byte("<iframe"), []byte("<div"), -1)
-	body = bytes.Replace(body, []byte("/iframe>"), []byte("</div"), -1)
+	body = bytes.Replace(body, []byte("/iframe>"), []byte("/div>"), -1)
 	return body
 }
 
