@@ -2,6 +2,7 @@ package retracer
 
 import (
 	"bytes"
+	"fmt"
 	"io/ioutil"
 	"net/http"
 	"net/url"
@@ -10,6 +11,7 @@ import (
 	"time"
 
 	"net/http/cookiejar"
+	"net/http/httputil"
 
 	"golang.org/x/net/publicsuffix"
 	"h12.me/errors"
@@ -21,6 +23,7 @@ type Tracer struct {
 	Header       http.Header
 	Timeout      time.Duration
 	Certs        *mitm.CertPool
+	Debug        bool
 }
 
 func (t *Tracer) Trace(uri string, callback func(string, *http.Response) error) error {
@@ -74,6 +77,9 @@ func (t *Tracer) Trace(uri string, callback func(string, *http.Response) error) 
 		resp.Body = ioutil.NopCloser(bytes.NewReader(body))
 
 		// callback
+		if t.Debug {
+			dumpResponse(req, resp)
+		}
 		if err := callback(uri, resp); err != nil {
 			return err
 		}
@@ -100,6 +106,14 @@ func (t *Tracer) Trace(uri string, callback func(string, *http.Response) error) 
 		break
 	}
 	return nil
+}
+
+func dumpResponse(req *http.Request, resp *http.Response) {
+	buf, _ := httputil.DumpResponse(resp, true)
+	fmt.Println("\n\n")
+	fmt.Println(req.URL.String())
+	fmt.Println(req.Header)
+	fmt.Println(string(buf))
 }
 
 func shouldRedirect(statusCode int) bool {
