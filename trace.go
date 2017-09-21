@@ -110,7 +110,12 @@ func shouldRedirect(statusCode int) bool {
 	return false
 }
 
-var rxRedirect = regexp.MustCompile("(<script|http-equiv)")
+/*
+<script>
+meta http-equiv
+body onload
+*/
+var rxRedirect = regexp.MustCompile(`(script|http-equiv|onload)`)
 
 func couldJSRedirect(header http.Header, body []byte) bool {
 	return header.Get("Refresh") != "" ||
