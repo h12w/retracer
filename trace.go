@@ -91,15 +91,31 @@ func (t *Tracer) Trace(uri string, callback func(string, *http.Response) error) 
 				return err
 			}
 			uri = loc.String()
+			if t.Debug {
+				fmt.Println("DEBUG: 302 redirect to " + uri)
+			}
 			continue
 		} else if resp.StatusCode == http.StatusOK && couldJSRedirect(resp.Header, body) {
+			if t.Debug {
+				fmt.Println("DEBUG: could be JS redirect")
+			}
 			location, err := (&JSTracer{Timeout: 5 * time.Second, Certs: t.Certs}).Trace(uri, resp.Header, body)
 			if err != nil {
+				if t.Debug {
+					fmt.Println("DEBUG: JS redirect error " + err.Error())
+				}
 				return err
 			}
 			if location != "" {
 				uri = location
+				if t.Debug {
+					fmt.Println("DEBUG: JS redirect to " + uri)
+				}
 				continue
+			} else {
+				if t.Debug {
+					fmt.Println("DEBUG: JS redirect to empty")
+				}
 			}
 		}
 
@@ -109,8 +125,9 @@ func (t *Tracer) Trace(uri string, callback func(string, *http.Response) error) 
 }
 
 func dumpResponse(req *http.Request, resp *http.Response) {
+	fmt.Println("\n\n\n")
+	fmt.Println("DEBUG: dump request/response")
 	buf, _ := httputil.DumpResponse(resp, true)
-	fmt.Println("\n\n")
 	fmt.Println(req.URL.String())
 	fmt.Println(req.Header)
 	fmt.Println(string(buf))

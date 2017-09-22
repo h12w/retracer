@@ -34,7 +34,7 @@ func (t *JSTracer) Trace(uri string, header http.Header, body []byte) (string, e
 
 	browser, err := startBrowser(uri, proxy.URL())
 	if err != nil {
-		return "", nil
+		return "", err
 	}
 	defer browser.Close()
 
