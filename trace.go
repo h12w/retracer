@@ -58,8 +58,9 @@ func (t *Tracer) Trace(uri string, callback func(string, *http.Response) error) 
 		resp, err := t.RoundTripper.RoundTrip(req)
 		if err != nil {
 			callback(uri, &http.Response{
-				Header: make(http.Header),
-				Body:   ioutil.NopCloser(strings.NewReader("")),
+				Request: req,
+				Header:  make(http.Header),
+				Body:    ioutil.NopCloser(strings.NewReader("")),
 			})
 			return errors.Wrap(err)
 		}
