@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"h12.me/mitm"
+	"h12.io/mitm"
 )
 
 func TestTrace(t *testing.T) {

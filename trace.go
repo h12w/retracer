@@ -14,8 +14,8 @@ import (
 	"net/http/httputil"
 
 	"golang.org/x/net/publicsuffix"
-	"h12.me/errors"
-	"h12.me/mitm"
+	"h12.io/errors"
+	"h12.io/mitm"
 )
 
 type Tracer struct {

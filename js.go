@@ -14,9 +14,9 @@ import (
 	"syscall"
 	"time"
 
-	"h12.me/errors"
-	"h12.me/mitm"
-	"h12.me/uuid"
+	"h12.io/errors"
+	"h12.io/mitm"
+	"h12.io/uuid"
 )
 
 type JSTracer struct {

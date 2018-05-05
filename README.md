@@ -1,7 +1,7 @@
 retracer: URL Redirect Tracer
 =============================
 
-`h12.me/retracer` is a Go package that can trace any HTTP(S) URL redirections regardless
+`h12.io/retracer` is a Go package that can trace any HTTP(S) URL redirections regardless
 they are 3xx redirections, http-eqiv refreshes, Javascript navigations and the non-standard
 [HTTP Refresh header](http://www.otsukare.info/2015/03/26/refresh-http-header).
 
@@ -16,7 +16,7 @@ Install
 
 ```
 sudo apt-get install surf xvfb
-go get h12.me/retracer
+go get h12.io/retracer
 ```
 
 Tips
